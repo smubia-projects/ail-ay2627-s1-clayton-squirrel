@@ -12,7 +12,7 @@ runs each new one through the extraction engine in app.py.
   that failed are retried on the next scans (up to scan_jobs.MAX_TRIES times).
 """
 
-import traceback
+import logging
 from typing import Optional
 from urllib.parse import quote
 
@@ -22,6 +22,8 @@ import google_api
 import loyalty
 import reminders
 import scan_jobs
+
+log = logging.getLogger(__name__)
 
 
 def _gmail_term(word: str) -> str:
@@ -87,14 +89,14 @@ def _run(user_id: str, job: dict) -> None:
     try:
         _scan(user_id, job)
     except google_api.GoogleAccessRevoked as e:
-        print(f"  Gmail scan: access revoked ({e})", flush=True)
+        log.warning("Gmail scan: access revoked (%s)", e)
         disconnect(user_id, revoke=False)
         scan_jobs.update(job, state="error", message="Gmail access was revoked or expired. Connect Gmail again.")
     except google_api.GoogleError as e:
-        print(f"  Gmail scan failed: {e}", flush=True)
+        log.warning("Gmail scan failed: %s", e)
         scan_jobs.update(job, state="error", message=str(e))
     except Exception:
-        traceback.print_exc()
+        log.exception("Gmail scan failed unexpectedly")
         scan_jobs.update(job, state="error", message="The scan failed unexpectedly. See the terminal running server.py.")
 
 

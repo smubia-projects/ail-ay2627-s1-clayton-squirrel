@@ -14,8 +14,8 @@ Which scans the last daily scan started is kept in memory, for its summary;
 a restart forgets it (the scans' results are kept).
 """
 
+import logging
 import threading
-import traceback
 from functools import partial
 from typing import Callable
 
@@ -24,6 +24,8 @@ import gmail_sync
 import imap_sync
 import outlook_sync
 import reminders
+
+log = logging.getLogger(__name__)
 
 # User id -> a status function for each scan the user's last daily scan started.
 _started: dict[str, list[Callable[[], dict]]] = {}
@@ -68,7 +70,7 @@ def maybe_start(user_id: str) -> None:
             start()  # a scan already running (started by hand) is left alone, and still counted here
             started.append(status)
         except Exception:
-            traceback.print_exc()
+            log.exception("Daily scan: an inbox scan couldn't start")
     with _lock:
         _started[user_id] = started
 

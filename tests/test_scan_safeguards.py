@@ -156,6 +156,50 @@ def test_failed_email_still_counts_and_is_retried(user, monkeypatch):
         assert "a" in scan_jobs.finished_emails(conn, user["id"])
 
 
+def test_given_up_emails_can_be_tried_again(user, monkeypatch):
+    def refusal(*args):
+        raise AIError("model refused")
+    monkeypatch.setattr(scan_jobs, "extract_benefit_from_email", refusal)
+    monkeypatch.setattr(scan_jobs, "describe_ai_error", lambda e: ("Refused.", False))
+    email = {"text": "Your voucher", "received_date": None}
+    for _ in range(scan_jobs.MAX_TRIES):
+        scan_jobs.extract_and_store(user["id"], new_job(), "a", email, "gmail", "gmail:a", {}, TODAY)
+    scan_jobs.extract_and_store(user["id"], new_job(), "b", email, "gmail", "gmail:b", {}, TODAY)  # failed once
+    with db.connect() as conn:
+        assert scan_jobs.given_up(conn, user["id"]) == 1
+        assert scan_jobs.given_up(conn, "someone-else") == 0
+        assert scan_jobs.retry_given_up(conn, user["id"]) == 1
+        assert scan_jobs.given_up(conn, user["id"]) == 0
+        assert "a" not in scan_jobs.finished_emails(conn, user["id"])
+
+
+def test_scan_cut_short_by_a_restart_shows_as_stopped(user):
+    import threading
+    release = threading.Event()
+    finished = threading.Event()
+
+    def slow_scan(job):
+        release.wait(5)
+        scan_jobs.update(job, state="done")
+
+    scan_jobs.start("gmail:x", slow_scan)
+    scan_jobs._jobs.clear()  # the restart: progress kept in memory is gone
+    assert scan_jobs.mark_interrupted() == 1
+    assert scan_jobs.status("gmail:x") == {"state": "error", "message": scan_jobs.INTERRUPTED}
+    assert scan_jobs.mark_interrupted() == 0  # reported once
+
+    release.set()
+    scan_jobs.start("gmail:y", lambda job: finished.set())
+    assert finished.wait(5)
+    for _ in range(50):  # the row goes when the scan ends
+        with db.connect() as conn:
+            if not conn.execute("SELECT 1 FROM running_scans WHERE job_key = 'gmail:y'").fetchone():
+                break
+        release.wait(0.05)
+    else:
+        raise AssertionError("a finished scan was left marked as running")
+
+
 # --- Expired and repeated offers ------------------------------------------------
 
 def found(monkeypatch, **fields):

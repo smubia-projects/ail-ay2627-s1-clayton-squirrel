@@ -16,7 +16,7 @@ through the AI extraction in scan_jobs.
   Squirrel from their Microsoft account.
 """
 
-import traceback
+import logging
 from datetime import date, timedelta
 from typing import Optional
 
@@ -26,6 +26,8 @@ import loyalty
 import microsoft_api
 import reminders
 import scan_jobs
+
+log = logging.getLogger(__name__)
 
 
 def _term(word: str) -> str:
@@ -85,14 +87,14 @@ def _run(user_id: str, job: dict) -> None:
     try:
         _scan(user_id, job)
     except microsoft_api.MicrosoftAccessRevoked as e:
-        print(f"  Outlook scan: access revoked ({e})", flush=True)
+        log.warning("Outlook scan: access revoked (%s)", e)
         disconnect(user_id)
         scan_jobs.update(job, state="error", message="Outlook access was removed or expired. Connect Outlook again.")
     except microsoft_api.MicrosoftError as e:
-        print(f"  Outlook scan failed: {e}", flush=True)
+        log.warning("Outlook scan failed: %s", e)
         scan_jobs.update(job, state="error", message=str(e))
     except Exception:
-        traceback.print_exc()
+        log.exception("Outlook scan failed unexpectedly")
         scan_jobs.update(job, state="error", message="The scan failed unexpectedly. See the terminal running server.py.")
 
 

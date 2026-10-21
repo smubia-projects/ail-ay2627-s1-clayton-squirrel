@@ -20,10 +20,10 @@ gmail_sync.py scans Gmail (search, then AI extraction via scan_jobs).
 import email
 import imaplib
 import ipaddress
+import logging
 import re
 import socket
 import ssl
-import traceback
 from datetime import date, timedelta
 from email import policy
 from email.utils import parsedate_to_datetime
@@ -37,6 +37,8 @@ import loyalty
 import reminders
 import scan_jobs
 from mailtext import html_to_text
+
+log = logging.getLogger(__name__)
 
 PORT = 993
 TIMEOUT_S = 30
@@ -368,10 +370,10 @@ def _run(user_id: str, account_id: str, job: dict) -> None:
     except ImapError as e:
         scan_jobs.update(job, state="error", message=str(e))
     except (imaplib.IMAP4.error, OSError) as e:
-        print(f"  IMAP scan failed: {e!r}", flush=True)
+        log.warning("IMAP scan failed: %r", e)
         scan_jobs.update(job, state="error", message="Lost the connection to the email server. Scan again to continue.")
     except Exception:
-        traceback.print_exc()
+        log.exception("IMAP scan failed unexpectedly")
         scan_jobs.update(job, state="error", message="The scan failed unexpectedly. See the terminal running server.py.")
 
 

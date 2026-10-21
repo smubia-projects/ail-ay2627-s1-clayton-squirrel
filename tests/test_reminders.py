@@ -128,3 +128,26 @@ def test_failed_send_is_tried_again(user, sent_emails, monkeypatch):
     assert reminders.run_due(MORNING) == 0
     monkeypatch.setattr(mailer, "send", lambda to, subject, text: sent_emails.append((to, subject, text)))
     assert reminders.run_due(MORNING) == 1
+
+
+def test_failed_sends_are_recorded_until_one_works(user, sent_emails, monkeypatch):
+    add_benefit(user["id"], expiry_date="2026-10-05")
+    import mailer
+
+    def down(*args):
+        raise OSError("SMTP server unreachable")
+    monkeypatch.setattr(mailer, "send", down)
+    reminders.run_due(MORNING)
+    with db.connect() as conn:
+        first = reminders.failing_since(conn, user["id"])
+        conn.execute("UPDATE reminder_settings SET failing_since = '2026-10-01T00:00:00+00:00' WHERE user_id = ?",
+                     (user["id"],))
+    assert first is not None
+    reminders.run_due(MORNING)
+    with db.connect() as conn:  # the first failure is kept
+        assert reminders.failing_since(conn, user["id"]) == "2026-10-01T00:00:00+00:00"
+        assert reminders.get_settings(conn, user["id"])["timezone"] == "Asia/Singapore"
+    monkeypatch.setattr(mailer, "send", lambda to, subject, text: sent_emails.append((to, subject, text)))
+    assert reminders.run_due(MORNING) == 1
+    with db.connect() as conn:
+        assert reminders.failing_since(conn, user["id"]) is None

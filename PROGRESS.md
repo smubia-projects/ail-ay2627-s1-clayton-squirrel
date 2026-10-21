@@ -97,7 +97,7 @@ cd frontend && npm run build && cd ..   # rebuild the React app after frontend c
 | `server.py` | Standard-library web server. JSON API under `/api/*`, and serves the React build from `frontend/dist`. |
 | `frontend/` | React 19 + TypeScript + Vite + Tailwind v4. `Root.tsx` shows sign-in or the app; `App.tsx` picks the page; pages are in `src/pages/` (Dashboard, All benefits, Assistant); `lib/router.ts` is a small History API router. |
 | `.env.example` | Template for `.env`. |
-| `instance/` | Created at runtime: database and encryption key. **Never commit or share.** |
+| `instance/` | Created at runtime: database, encryption key and `squirrel.log` (warnings and errors, last few MB). **Never commit or share.** |
 
 ### API endpoints (`server.py`)
 
@@ -617,13 +617,27 @@ Three limits on what reaches OpenAI, ready for the planned daily automatic scan.
   need a new card. Re-run, 11 of the 13 came out right (KrisFlyer lost its date and goes to review; a PAssion
   newsletter picked a deal's date). The earlier five problem emails still pass.
 
+### 36. Failures the user couldn't see (21 October 2026)
+
+- **Retry failed emails:** an email the AI model fails on 3 times is skipped by scans. Connections now says how
+  many there are, with a "Try them again" button (`/api/scan-failures`, `scan_jobs.retry_given_up`).
+- **Reminder emails that don't get through:** a failed send records `reminder_settings.failing_since` (the first
+  failure; cleared by the next send that works). The session returns it and the app shows a banner.
+- **Scans cut short by a restart** now show "The scan stopped when Squirrel restarted. Scan again to continue"
+  instead of disappearing: running scans are kept in the `running_scans` table, and `scan_jobs.mark_interrupted`
+  reads what's left there at startup.
+- **Log file:** warnings and errors (failed scans, reminder sends, unexpected server errors) go to
+  `instance/squirrel.log` as well as the terminal, with dates, rotated at 1 MB (3 old files kept). Request lines and
+  emails printed when SMTP isn't set (they hold reset links) stay in the terminal only.
+- 5 new tests (120).
+
 ## Known gaps and limitations
 
 - **Extraction checked once on real emails** (22 benefits, section 35), not with a repeatable eval. Offers without a code that arrive in several emails can still be listed twice.
 - **Card perk catalog is hand-written**: US cards checked 8 October 2026 (section 34), Singapore cards 6 October 2026 (section 31). A perk already saved for the current period keeps its old value or wording until the period resets. Issuers change perks; verify each card before trusting it. Custom cards and user-defined perks aren't supported yet.
 - **Unconfirmed accounts are kept forever.** Email verification is a soft gate (section 28); accounts that never confirm aren't deleted automatically.
 - **AI request limits live in server memory** (`limits.py`), so a restart resets them and several server processes would each count separately.
-- **Scan jobs live in server memory.** Restarting the server mid-scan loses progress (already-processed emails are kept).
+- **Scan jobs live in server memory.** Restarting the server mid-scan loses progress (already-processed emails are kept); the scan then shows as stopped, with a message to scan again.
 - **No automated browser tests.** The screens are checked by hand in a browser (light, dark, phone width).
 - **Tests cover the server only** (section 33): not the inbox scanners, the AI features or the React screens.
 - **Reminders are email only**, sent by a thread inside `server.py`: none go out while the server is stopped (a missed one is sent at the next check if the benefit hasn't expired). No push or in-app notifications. The email has no one-click unsubscribe; it says to change or stop a reminder from the benefit's ⋯ menu. The background thread's own send hasn't been watched end to end yet; the sample was sent by calling the same code directly.

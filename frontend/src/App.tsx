@@ -7,6 +7,7 @@ import { Link } from './components/Link'
 import { Woodland } from './components/Woodland'
 import { useBenefits } from './hooks/useBenefits'
 import { api, type AutoScanStatus, type Session, type User } from './lib/api'
+import { RemindersFailingBanner } from './components/RemindersFailingBanner'
 import { SCAN_POLL_MS } from './components/ScanStatus'
 import { VerifyEmailBanner } from './components/VerifyEmailBanner'
 import { PAGES, navigate, usePath } from './lib/router'
@@ -126,6 +127,7 @@ export default function App({
 
       <main id="main" className="mx-auto grid max-w-6xl gap-6 px-4 pt-8 pb-16 sm:px-6 lg:px-8">
         {!user.email_verified ? <VerifyEmailBanner user={user} onUserChange={onSessionChange} /> : null}
+        {session.reminders_failing_since ? <RemindersFailingBanner since={session.reminders_failing_since} /> : null}
         {path === '/benefits' ? (
           <BenefitsPage benefits={benefits} error={error} onRetry={reload} onUpdated={upsert} onRemoved={remove} />
         ) : path === '/assistant' ? (

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AutoScanPanel } from '../components/AutoScanPanel'
 import { CardsPanel } from '../components/CardsPanel'
 import { EmailAccountsPanel } from '../components/EmailAccountsPanel'
+import { GivenUpEmails } from '../components/GivenUpEmails'
 import { GmailPanel } from '../components/GmailPanel'
 import { OutlookPanel } from '../components/OutlookPanel'
 import type { AutoScanStatus, Session } from '../lib/api'
@@ -47,6 +48,7 @@ export function ConnectionsPage({
           />
           <OutlookPanel microsoftEnabled={session.microsoft_enabled} onScanFinished={onBenefitsChanged} />
           <EmailAccountsPanel onScanFinished={onBenefitsChanged} />
+          <GivenUpEmails />
         </div>
         <div className="grid items-start gap-6">
           {autoScan ? <AutoScanPanel status={autoScan} onChange={autoScanChanged} /> : null}

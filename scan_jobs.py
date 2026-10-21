@@ -20,12 +20,14 @@ Limits on what reaches the AI model (and so on API cost):
   wait for a later scan.
 
 Scan progress lives in memory, so restarting the server mid-scan loses it
-(emails already read stay processed).
+(emails already read stay processed). Which scans are running is also kept in
+the database, so after a restart those show as stopped (mark_interrupted)
+instead of quietly disappearing.
 
 An email the AI model fails on (a refusal, unusable output) is tried again by
 the next scans, at most MAX_TRIES times in all; after that it's skipped, so a
 few bad emails can't use up every scan's limit and keep older emails from being
-read.
+read. The user can have those tried again (retry_given_up).
 """
 
 import sqlite3
@@ -122,8 +124,32 @@ def start(key: str, target: Callable[[dict], None]) -> dict:
                "skipped": 0, "filtered": 0, "failed": 0, "remaining": 0, "limit_reached": False,
                "daily_limit_reached": False, "memberships": 0, "message": None}
         _jobs[key] = job
-    threading.Thread(target=target, args=(job,), daemon=True).start()
+    with db.connect() as conn:
+        conn.execute("INSERT OR REPLACE INTO running_scans (job_key, started_at) VALUES (?, ?)", (key, db.now_iso()))
+
+    def run() -> None:
+        try:
+            target(job)
+        finally:
+            with db.connect() as conn:
+                conn.execute("DELETE FROM running_scans WHERE job_key = ?", (key,))
+
+    threading.Thread(target=run, daemon=True).start()
     return dict(job)
+
+
+INTERRUPTED = "The scan stopped when Squirrel restarted. Scan again to continue: emails already read won't be read again."
+
+
+def mark_interrupted() -> int:
+    """At startup: scans the restart cut short show as stopped, with a message. Returns how many."""
+    with db.connect() as conn:
+        keys = [r["job_key"] for r in conn.execute("SELECT job_key FROM running_scans")]
+        conn.execute("DELETE FROM running_scans")
+    with _jobs_lock:
+        for key in keys:
+            _jobs[key] = {"state": "error", "message": INTERRUPTED}
+    return len(keys)
 
 
 def update(job: dict, **changes) -> None:
@@ -169,6 +195,20 @@ def finished_emails(conn: sqlite3.Connection, user_id: str, prefix: str = "") ->
         "SELECT message_id FROM processed_emails WHERE user_id = ? AND message_id LIKE ? "
         "AND (done = 1 OR failures >= ?)",
         (user_id, f"{prefix}%", MAX_TRIES))}
+
+
+def given_up(conn: sqlite3.Connection, user_id: str) -> int:
+    """Emails the AI model failed on MAX_TRIES times, which scans now skip."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM processed_emails WHERE user_id = ? AND done = 0 AND failures >= ?",
+        (user_id, MAX_TRIES)).fetchone()[0]
+
+
+def retry_given_up(conn: sqlite3.Connection, user_id: str) -> int:
+    """Lets the next scans try those emails again (MAX_TRIES more times). Returns how many."""
+    return conn.execute(
+        "UPDATE processed_emails SET failures = 0 WHERE user_id = ? AND done = 0 AND failures >= ?",
+        (user_id, MAX_TRIES)).rowcount
 
 
 def _record_failure(user_id: str, message_key: str) -> None:

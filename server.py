@@ -26,13 +26,14 @@ import json
 import mimetypes
 import re
 import secrets
+import logging
 import threading
-import traceback
 from dataclasses import asdict, fields
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from logging.handlers import RotatingFileHandler
 from typing import Optional
 from urllib.parse import parse_qs, quote, urlsplit
 
@@ -49,8 +50,11 @@ import mailer
 import microsoft_api
 import outlook_sync
 import reminders
+import scan_jobs
 from app import CATEGORIES, MODEL, TYPES, ExtractedBenefit, ExtractionError, describe_ai_error
 from BenefitIntelligence import ask_about_benefits, build_weekly_digest
+
+log = logging.getLogger(__name__)
 
 DIST_DIR = (config.ROOT / "frontend" / "dist").resolve()
 MAX_BODY_BYTES = 64 * 1024
@@ -170,7 +174,7 @@ def _send_reset_email(address: str, link: str) -> None:
             f"Choose a new password here (the link works once, for {auth.RESET_LINK_MINUTES} minutes):\n{link}\n\n"
             "If it wasn't you, ignore this email: your password hasn't changed."))
     except Exception as e:  # noqa: BLE001 - a failed send must not crash the server
-        print(f"  Couldn't send the password reset email: {type(e).__name__}: {e}", flush=True)
+        log.warning("Couldn't send the password reset email: %s: %s", type(e).__name__, e)
 
 
 def _send_verification_email(address: str, link: str) -> None:
@@ -181,7 +185,7 @@ def _send_verification_email(address: str, link: str) -> None:
             f"The link works once, for {auth.VERIFY_LINK_HOURS} hours.\n\n"
             "If you didn't sign up for Squirrel, ignore this email: nothing will be sent to you."))
     except Exception as e:  # noqa: BLE001 - a failed send must not crash the server
-        print(f"  Couldn't send the confirmation email: {type(e).__name__}: {e}", flush=True)
+        log.warning("Couldn't send the confirmation email: %s: %s", type(e).__name__, e)
 
 
 def send_verification(user_id: str) -> None:
@@ -311,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             super().handle_one_request()
         except Exception:
-            traceback.print_exc()
+            log.exception("Unexpected error handling %s %s", self.command, self.path.split("?", 1)[0])
             try:
                 self._error(HTTPStatus.INTERNAL_SERVER_ERROR,
                             "Unexpected server error. See the terminal running server.py for details.")
@@ -365,6 +369,10 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/auto-scan":
             if user := self._require_user():
                 self._send_json(HTTPStatus.OK, auto_scan.status(user["id"]))
+        elif path == "/api/scan-failures":
+            if user := self._require_user():
+                with db.connect() as conn:
+                    self._send_json(HTTPStatus.OK, {"count": scan_jobs.given_up(conn, user["id"])})
         elif path == "/api/cards":
             if user := self._require_user():
                 with db.connect() as conn:
@@ -478,6 +486,9 @@ class Handler(BaseHTTPRequestHandler):
             if data["enabled"]:
                 auto_scan.maybe_start(user["id"])
             self._send_json(HTTPStatus.OK, auto_scan.status(user["id"]))
+        elif path == "/api/scan-failures/retry":
+            with db.connect() as conn:
+                self._send_json(HTTPStatus.OK, {"count": scan_jobs.retry_given_up(conn, user["id"])})
         elif path == "/api/timezone":
             try:
                 with db.connect() as conn:
@@ -516,12 +527,15 @@ class Handler(BaseHTTPRequestHandler):
         user = self._current_user()
         if user:
             auto_scan.maybe_start(user["id"])  # the app was opened while signed in
+            with db.connect() as conn:
+                reminders_failing_since = reminders.failing_since(conn, user["id"])
         self._send_json(HTTPStatus.OK, {
             "user": user,
             "google_enabled": config.GOOGLE_ENABLED,
             "microsoft_enabled": config.MICROSOFT_ENABLED,
             "gmail": gmail_sync.connection(user["id"]) if user else None,
             "auto_scan": auto_scan.status(user["id"]) if user else None,
+            "reminders_failing_since": reminders_failing_since if user else None,
         })
 
     def _register(self, data: dict) -> None:
@@ -973,8 +987,19 @@ class Handler(BaseHTTPRequestHandler):
         print(f"  {self.command} {self.path.split('?', 1)[0]} -> {args[1] if len(args) > 1 else ''}")
 
 
+def setup_logging() -> None:
+    """Warnings and errors go to the terminal and to instance/squirrel.log, which keeps the last few MB."""
+    log_file = RotatingFileHandler(config.INSTANCE_DIR / "squirrel.log", maxBytes=1_000_000, backupCount=3,
+                                   encoding="utf-8")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+                        handlers=[logging.StreamHandler(), log_file])
+
+
 if __name__ == "__main__":
     db.init()
+    setup_logging()
+    if interrupted := scan_jobs.mark_interrupted():
+        log.warning("%d inbox scan(s) were cut short by the last restart", interrupted)
     server = ThreadingHTTPServer((config.HOST, config.PORT), Handler)
     reminders.start()
     print(f"Squirrel running at {config.APP_URL}  (Ctrl+C to stop)")

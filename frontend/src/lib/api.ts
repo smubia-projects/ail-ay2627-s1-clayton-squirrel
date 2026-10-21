@@ -138,6 +138,8 @@ export interface Session {
   microsoft_enabled: boolean
   gmail: GmailConnection | null
   auto_scan: AutoScanStatus | null
+  /** When reminder emails to this user started failing (UTC timestamp), or null if the last one went out. */
+  reminders_failing_since: string | null
 }
 
 /** The daily scan (auto_scan.py): on or off, and the scans it last started. */
@@ -287,6 +289,9 @@ export const api = {
 
   autoScanStatus: () => request<AutoScanStatus>('/api/auto-scan'),
   setAutoScan: (enabled: boolean) => request<AutoScanStatus>('/api/auto-scan', post({ enabled })),
+  /** Emails the AI model failed on 3 times, which scans now skip. */
+  scanFailures: () => request<{ count: number }>('/api/scan-failures'),
+  retryScanFailures: () => request<{ count: number }>('/api/scan-failures/retry', post({})),
   imapAccounts: () => request<ImapAccount[]>('/api/imap'),
   connectImap: (email: string, password: string, host: string) =>
     request<ImapAccount>('/api/imap', post({ email, password, host })),

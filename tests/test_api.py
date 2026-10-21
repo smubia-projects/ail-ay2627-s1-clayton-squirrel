@@ -124,6 +124,28 @@ def test_daily_scan_switch(client):
     assert data["running"] is False  # nothing connected, so nothing to scan
 
 
+def test_retry_given_up_emails(client):
+    import db
+    import scan_jobs
+    user = client.sign_up("alex@example.com")
+    with db.connect() as conn:
+        conn.execute("INSERT INTO processed_emails (user_id, message_id, done, failures) VALUES (?, 'a', 0, ?)",
+                     (user["id"], scan_jobs.MAX_TRIES))
+    assert client.get("/api/scan-failures") == (200, {"count": 1})
+    assert client.post("/api/scan-failures/retry") == (200, {"count": 1})
+    assert client.get("/api/scan-failures") == (200, {"count": 0})
+
+
+def test_session_says_when_reminders_are_failing(client):
+    import db
+    user = client.sign_up("alex@example.com")
+    assert client.get("/api/session")[1]["reminders_failing_since"] is None
+    with db.connect() as conn:
+        conn.execute("INSERT INTO reminder_settings (user_id, enabled, days_before, failing_since) "
+                     "VALUES (?, 1, 7, '2026-10-01T00:00:00+00:00')", (user["id"],))
+    assert client.get("/api/session")[1]["reminders_failing_since"] == "2026-10-01T00:00:00+00:00"
+
+
 # --- Limits on AI requests ---------------------------------------------------------------------------
 
 def test_hourly_ai_limit():

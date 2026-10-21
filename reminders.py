@@ -14,6 +14,8 @@ per check, listing every benefit whose reminder day has come.
   changed date gets a new reminder. Card credits are a new benefit each
   period, so they're reminded every period.
 - Benefits waiting for review are skipped: their date isn't confirmed.
+- A failed send is tried again at the next check. reminder_settings.failing_since
+  keeps when the failures started, so the app can tell the user.
 - Days and SEND_FROM_HOUR follow each user's own time zone (sent by their
   browser; the server's until it is), so nothing arrives before 8am where they
   are. A reminder whose day has already passed when it's set up (a benefit
@@ -21,6 +23,7 @@ per check, listing every benefit whose reminder day has come.
   check.
 """
 
+import logging
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -36,6 +39,8 @@ DEFAULT_DAYS = 7
 DAY_CHOICES = (7, 14, 30, 60, 90, 180, 365)
 SEND_FROM_HOUR = 8
 CHECK_EVERY_SECONDS = 15 * 60
+
+log = logging.getLogger(__name__)
 
 Reminder = Union[int, str, None]
 
@@ -68,6 +73,21 @@ def save_timezone(conn, user_id: str, name: str) -> None:
         "INSERT INTO reminder_settings (user_id, enabled, days_before, timezone) VALUES (?, 1, ?, ?) "
         "ON CONFLICT (user_id) DO UPDATE SET timezone = excluded.timezone",
         (user_id, DEFAULT_DAYS, name),
+    )
+
+
+def failing_since(conn, user_id: str) -> Optional[str]:
+    """When reminder emails to this user started failing (UTC, ISO), or None if the last one went out."""
+    row = conn.execute("SELECT failing_since FROM reminder_settings WHERE user_id = ?", (user_id,)).fetchone()
+    return row["failing_since"] if row else None
+
+
+def _record_failure(conn, user_id: str) -> None:
+    """Keeps the first failure, so the app can say how long reminders haven't been getting through."""
+    conn.execute(
+        "INSERT INTO reminder_settings (user_id, enabled, days_before, failing_since) VALUES (?, 1, ?, ?) "
+        "ON CONFLICT (user_id) DO UPDATE SET failing_since = COALESCE(failing_since, excluded.failing_since)",
+        (user_id, DEFAULT_DAYS, db.now_iso()),
     )
 
 
@@ -214,13 +234,16 @@ def run_due(now: Optional[datetime] = None) -> int:
         try:
             mailer.send(user["email"], *compose(user["name"], items, today))
         except Exception as e:  # noqa: BLE001 - try again at the next check
-            print(f"  Reminder email to user {user['id']} failed: {e}", flush=True)
+            log.warning("Reminder email to user %s failed: %s: %s", user["id"], type(e).__name__, e)
+            with db.connect() as conn:
+                _record_failure(conn, user["id"])
             continue
         with db.connect() as conn:
             conn.executemany(
                 "INSERT OR IGNORE INTO reminders_sent (user_id, benefit_id, expiry_date, sent_at) VALUES (?, ?, ?, ?)",
                 [(user["id"], b["id"], b["expiry_date"], db.now_iso()) for b in items],
             )
+            conn.execute("UPDATE reminder_settings SET failing_since = NULL WHERE user_id = ?", (user["id"],))
         emails += 1
     return emails
 
@@ -229,15 +252,15 @@ def _loop() -> None:
     while True:
         try:
             run_due()
-        except Exception as e:  # noqa: BLE001 - keep checking even if one run fails
-            print(f"  Reminder check failed: {e}", flush=True)
+        except Exception:  # noqa: BLE001 - keep checking even if one run fails
+            log.exception("Reminder check failed")
         try:
             # Same timer: benefits removed over db.REMOVED_KEEP_DAYS ago are deleted for good,
             # even for users who never open Recently removed.
             with db.connect() as conn:
                 db.purge_removed_benefits(conn)
-        except Exception as e:  # noqa: BLE001
-            print(f"  Clearing removed benefits failed: {e}", flush=True)
+        except Exception:  # noqa: BLE001
+            log.exception("Clearing removed benefits failed")
         time.sleep(CHECK_EVERY_SECONDS)
 
 

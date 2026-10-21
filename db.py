@@ -123,6 +123,13 @@ CREATE TABLE IF NOT EXISTS processed_emails (
     PRIMARY KEY (user_id, message_id)
 );
 
+-- Inbox scans in progress (scan_jobs.py), by job key. A row left when the
+-- server starts is a scan the last restart cut short.
+CREATE TABLE IF NOT EXISTS running_scans (
+    job_key    TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL
+);
+
 -- Emails sent to the AI model per user per day (the user's local date), for
 -- scan_jobs.DAILY_EMAIL_CAP. Kept in the database so a restart doesn't reset it.
 CREATE TABLE IF NOT EXISTS ai_email_usage (
@@ -168,7 +175,8 @@ CREATE TABLE IF NOT EXISTS reminder_settings (
     enabled     INTEGER NOT NULL,
     days_before INTEGER NOT NULL,
     categories  TEXT NOT NULL DEFAULT '{}',  -- JSON {category: days before, or "off"}
-    timezone    TEXT                         -- IANA name from the browser, e.g. "Asia/Singapore"
+    timezone    TEXT,                        -- IANA name from the browser, e.g. "Asia/Singapore"
+    failing_since TEXT                       -- first failed send since the last one that worked
 );
 
 -- One row per benefit and expiry date already reminded about.
@@ -215,7 +223,8 @@ def init() -> None:
         verification_is_new = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'email_verifications'").fetchone() is None
         conn.executescript(SCHEMA)
-        _add_columns(conn, "reminder_settings", {"categories": "TEXT NOT NULL DEFAULT '{}'", "timezone": "TEXT"})
+        _add_columns(conn, "reminder_settings", {"categories": "TEXT NOT NULL DEFAULT '{}'", "timezone": "TEXT",
+                                                 "failing_since": "TEXT"})
         if _add_columns(conn, "users", {"email_verified_at": "TEXT"}):
             # Accounts made before this column: Google had verified the address of any linked to Google.
             conn.execute("UPDATE users SET email_verified_at = created_at WHERE google_sub IS NOT NULL")

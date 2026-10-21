@@ -8,11 +8,14 @@ Without SMTP settings in .env, the email is printed in the server terminal
 instead, so password resets still work when running locally.
 """
 
+import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
 
 import config
+
+log = logging.getLogger(__name__)
 
 
 def send(to: str, subject: str, text: str) -> None:
@@ -39,4 +42,4 @@ def send(to: str, subject: str, text: str) -> None:
         smtp.send_message(message)
     # Shortened address: enough to tell "sent" from "never tried" without logging who it was.
     name, _, domain = to.partition("@")
-    print(f"  Email sent to {name[:2]}…@{domain}: {subject}", flush=True)
+    log.info("Email sent to %s…@%s: %s", name[:2], domain, subject)
