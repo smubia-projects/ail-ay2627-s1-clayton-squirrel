@@ -1,0 +1,5 @@
+# Squirrel demo API (Cloud Run). The OpenRouter calls use the standard library (urllib).
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.34,<1.0
+pydantic-settings>=2.9,<3.0
+upstash-redis>=1.1,<2.0
