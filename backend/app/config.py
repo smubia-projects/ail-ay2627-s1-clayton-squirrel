@@ -6,6 +6,7 @@ excluded from the Docker image); on Cloud Run every value comes from the
 service's env vars. See backend/.env.example for the full list.
 """
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,9 +14,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # OpenRouter (all AI calls go through its OpenAI-compatible chat/completions API).
-    openrouter_api_key: str = ""
-    openrouter_model: str = "google/gemini-2.5-flash"
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_api_key: str = Field("", validation_alias=AliasChoices("API_KEY", "OPENROUTER_API_KEY"))
+    openrouter_model: str = Field("google/gemini-2.5-flash", validation_alias=AliasChoices("MODEL_NAME", "OPENROUTER_MODEL"))
+    openrouter_base_url: str = Field("https://openrouter.ai/api/v1", validation_alias=AliasChoices("API_BASE_URL", "OPENROUTER_BASE_URL"))
 
     # Comma-separated frontend origins allowed by CORS, e.g. https://squirrel.vercel.app
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

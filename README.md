@@ -309,7 +309,7 @@ Run it locally:
 
 ```bash
 cd backend
-cp .env.example .env          # add OPENROUTER_API_KEY
+cp .env.example .env          # add API_KEY
 python -m pip install -r requirements-dev.txt
 python -m pytest              # model calls are stubbed
 uvicorn app.main:app --port 8080
