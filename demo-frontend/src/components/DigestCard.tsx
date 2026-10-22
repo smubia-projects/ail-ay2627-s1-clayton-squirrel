@@ -1,5 +1,6 @@
 import { ListOrdered, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
+import { isQuotaError } from '../lib/aiApi'
 import { api, errorMessage, type Digest } from '../lib/api'
 import { cn } from '../lib/cn'
 import { AiLabel } from './AiLabel'
@@ -31,7 +32,8 @@ export function DigestCard() {
     try {
       setDigest(await api.digest())
     } catch (e) {
-      setError(errorMessage(e))
+      // The rate-limit CTA / paused notice is shown as a modal instead.
+      if (!isQuotaError(e)) setError(errorMessage(e))
     } finally {
       setLoading(false)
     }
