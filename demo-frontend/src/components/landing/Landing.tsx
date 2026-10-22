@@ -278,7 +278,7 @@ export function Landing({ onStart }: LandingProps) {
             <div className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-6 gap-y-1 px-4 py-6 text-sm text-ink-muted sm:px-8">
               <span>© 2026 Squirrel</span>
               <a
-                href="https://www.smubia.com/ai-lodge"
+                href="https://www.smubia.com/ailodge"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex min-h-11 items-center underline-offset-4 hover:text-ink hover:underline"
