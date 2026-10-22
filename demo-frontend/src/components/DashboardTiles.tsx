@@ -71,7 +71,7 @@ export function DashboardTiles({ benefits }: { benefits: Benefit[] | null }) {
         <CreditsTile credits={credits} />
       ) : benefits ? (
         <Link
-          href="/connections"
+          href="/add"
           className="glass flex animate-rise items-center gap-3.5 rounded-[22px] p-5 transition-transform duration-150 hover:-translate-y-0.5"
           style={{ animationDelay: '120ms' }}
         >
