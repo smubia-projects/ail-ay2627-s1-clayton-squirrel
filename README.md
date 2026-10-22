@@ -12,6 +12,15 @@ It reads your inbox (read-only) for benefit emails, uses an AI model to pull out
   <b><a href="https://squirrel-jet.vercel.app">Try the live demo</a></b>: no install needed. Sign in as <code>alex@demo.com</code> with any password.
 </p>
 
+> **AI Lodge showcase version.** The hosted demo is a public, no-login version of Squirrel:
+> paste an email, upload an `.eml` file or read the sample inbox, and a real AI model
+> (via OpenRouter) extracts the benefit into a list kept in your browser, alongside the
+> credit-card picker, the expiry dashboard, the weekly digest and the assistant. It does
+> **not** connect to Gmail/Outlook/IMAP, send reminder emails, run background scans or
+> have accounts, so it never holds anyone's email credentials. See
+> [Deployment (AI Lodge)](#deployment-ai-lodge) below; the rest of this README describes
+> the full local app the student built.
+
 ### Watch the 45-second demo
 
 https://github.com/user-attachments/assets/fa45027a-7f15-4bcd-a858-b5037b62026f
@@ -282,7 +291,43 @@ Run `npm run dev` in `frontend/` for live reload at http://localhost:5173; it fo
 ```bash
 cd demo-frontend && npm ci && npm run dev
 ```
-Sign in with any password as `alex@demo.com`, `priya@demo.com`, `marcus@demo.com` or `sam@demo.com`. See [`demo-frontend/README.md`](demo-frontend/README.md) for deploying it on Vercel.
+The AI Lodge version of this demo calls the real API in `backend/` for its AI features; see below and [`demo-frontend/README.md`](demo-frontend/README.md).
+
+## Deployment (AI Lodge)
+
+| Part | Folder | Host | Notes |
+|---|---|---|---|
+| API | `backend/` (FastAPI) | Google Cloud Run | `POST /api/extract`, `/api/digest`, `/api/ask`; `GET /api/health`. Stateless, no database. |
+| Web app | `demo-frontend/` (Vite + React) | Vercel | Root directory `demo-frontend`; `vercel.json` sets the build. Env: `VITE_API_BASE` = the Cloud Run URL. |
+
+The API reuses the extraction schema, prompts and validation from `app.py` and the digest/assistant
+logic from `BenefitIntelligence.py` (copied into `backend/app/`, with the OpenAI Responses API call
+ported to OpenRouter chat/completions + `response_format`). The three AI routes are rate limited per
+IP through the club's shared Upstash engine (buckets `extract`, `digest`, `ask`).
+
+Run it locally:
+
+```bash
+cd backend
+cp .env.example .env          # add OPENROUTER_API_KEY
+python -m pip install -r requirements-dev.txt
+python -m pytest              # model calls are stubbed
+uvicorn app.main:app --port 8080
+
+cd ../demo-frontend
+npm ci && npm run dev         # http://localhost:5173, calls http://localhost:8080 by default
+```
+
+Deploys: `.github/workflows/deploy.yml` builds `backend/` and deploys it to Cloud Run on push to
+`main` (env from the repo's `DOTENV` secret: `gh secret set DOTENV < backend/.env`). Then set
+`CORS_ORIGINS` to the Vercel URL and redeploy. Env vars are documented in `backend/.env.example`
+and `demo-frontend/.env.example`.
+
+Not used by the deployment (kept as the student's full app): `server.py`, `auth.py`, `account.py`,
+`db.py`, `config.py`, `limits.py`, `gmail_sync.py`, `google_api.py`, `outlook_sync.py`,
+`microsoft_api.py`, `imap_sync.py`, `scan_jobs.py`, `auto_scan.py`, `reminders.py`, `mailer.py`,
+`mailtext.py`, `loyalty.py`, `cards.py`, `demo_seed.py`, `app.py`, `BenefitIntelligence.py`,
+`tests/`, the root `.env.example` and `frontend/`.
 
 ## 7. AI safety and limitations
 

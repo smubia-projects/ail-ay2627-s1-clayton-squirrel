@@ -1,38 +1,39 @@
-# Squirrel demo
+# Squirrel demo (AI Lodge)
 
-A copy of `../frontend` that runs with no server, for showing Squirrel off
-(e.g. on Vercel). `src/demo/server.ts` answers every API call in the browser
-from sample data, and keeps changes in the visitor's browser only:
+The public, no-login version of Squirrel, deployed on Vercel. It started as a
+server-free copy of `../frontend`; the AI Lodge version makes its AI features
+real:
 
-- Any password works. Each email has its own account, kept separately:
+- **Try the demo** opens a demo profile (Alex's sample benefits). There are no
+  accounts: the benefit list, review queue, cards and ask history are kept in
+  this browser's localStorage by `src/demo/server.ts`. "Reset demo data" in the
+  profile menu puts it back.
+- **Add benefits** (`/add`): paste an email, upload an `.eml` file or read one
+  from the sample inbox (`src/demo/sampleInbox.ts`). Each goes to the real API
+  (`POST /api/extract`); the AI's result is checked by plain code and saved here.
+  The credit-card picker works from the bundled card catalog.
+- **Assistant**: the weekly digest and questions call `POST /api/digest` and
+  `POST /api/ask`, sending the current benefit list.
+- No Gmail/Outlook/IMAP connections, daily scans, reminder emails or sign-in.
+- A 429 from the API shows the AI Lodge rate-limit modal; a 503 shows a
+  "demo temporarily paused" notice (`src/components/QuotaModals.tsx`).
 
-  | Email | Who | Shows |
-  |---|---|---|
-  | alex@demo.com | Alex Demo | The full sample: Gmail, an Amex Platinum, memberships, items to review |
-  | priya@demo.com | Priya Nair | Singapore: dining and entertainment vouchers, a gym trial, KrisFlyer, a DBS card |
-  | marcus@demo.com | Marcus Tan | A frequent traveller: Chase Sapphire Reserve and Amex Gold credits, hotel and airline memberships |
-  | sam@demo.com | Sam Lee | A new account with nothing connected, to show the first scan and adding a card |
-
-  Any other email starts from Alex's data. "Continue with Google", "Connect
-  Gmail" and "Connect Outlook" connect straight away.
-- Scans pretend to read emails for a few seconds, then add sample benefits.
-- Assistant answers and the weekly digest come from simple rules, not AI.
-- To start over, clear the site's data in the browser (or run
-  `localStorage.clear()` in its console).
-
-The only other changes from `../frontend` are `src/lib/api.ts` (requests go to
-`src/demo/server.ts`) and `vercel.json`.
+The API calls live in `src/lib/aiApi.ts`, which reads `VITE_API_BASE`.
 
 ## Run it
 
     npm ci
     npm run dev        # http://localhost:5173
 
+Run the API from `../backend` at the same time (it defaults to
+http://localhost:8080), or set `VITE_API_BASE` to a deployed one.
+
 ## Deploy on Vercel
 
 Import the repository in Vercel and set **Root Directory** to `demo-frontend`.
 `vercel.json` sets the build (`npm run build`, output `dist`) and sends every
-page to `index.html`. No environment variables are needed.
+page to `index.html`. Set `VITE_API_BASE` to the Cloud Run URL of the API, and
+add the Vercel URL to the API's `CORS_ORIGINS`.
 
 ## Refresh the sample data
 
