@@ -10,6 +10,7 @@ A stateless FastAPI service with the three AI features of Squirrel:
 
 Nothing is stored: the browser keeps the benefit list (localStorage) and sends
 it with each digest/assistant request. No accounts, no inbox connections.
+The AI routes are rate limited per IP through the shared engine (rate_limit.py).
 """
 
 import re
@@ -27,6 +28,7 @@ from app.config import settings
 from app.eml import parse_eml
 from app.extraction import ExtractedBenefit, extract_benefit_from_email
 from app.llm import AIError, ExtractionError
+from app.rate_limit import check_rate_limit
 
 app = FastAPI(title="Squirrel demo API", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -176,6 +178,7 @@ def extract(body: ExtractIn, request: Request):
     if len(text.strip()) < 20:
         raise HTTPException(status_code=400, detail={"message": "Paste a whole email (at least a sentence or two)."})
 
+    check_rate_limit(request, "extract")
     today = _today(body.today)
     benefit = _ai_call(extract_benefit_from_email, text, received_date, today)
     return {"benefit": asdict(benefit), "subject": subject, "received_date": received_date}
@@ -187,6 +190,7 @@ def digest(body: DigestIn, request: Request):
     today = _today(body.today)
     if not benefits:  # answered without the model, so it doesn't use up the limit
         return build_weekly_digest([], today)
+    check_rate_limit(request, "digest")
     return _ai_call(build_weekly_digest, benefits, today)
 
 
@@ -199,4 +203,5 @@ def ask(body: AskIn, request: Request):
     today = _today(body.today)
     if not benefits:
         return {"answer": ask_about_benefits(question, [], today)}
+    check_rate_limit(request, "ask")
     return {"answer": _ai_call(ask_about_benefits, question, benefits, today)}

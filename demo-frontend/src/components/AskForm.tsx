@@ -1,5 +1,6 @@
 import { ArrowUp, Sparkles } from 'lucide-react'
 import { useState, type FormEvent, type Ref } from 'react'
+import { isQuotaError } from '../lib/aiApi'
 import { api, errorMessage, type AskEntry } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Kbd } from './ui/Kbd'
@@ -54,7 +55,8 @@ export function AskForm({ inputRef, onAsked }: AskFormProps) {
       onAsked(await api.ask(text))
       setQuestion('')
     } catch (err) {
-      setError(errorMessage(err))
+      // The rate-limit CTA / paused notice is shown as a modal instead.
+      if (!isQuotaError(err)) setError(errorMessage(err))
     } finally {
       setLoading(false)
     }
