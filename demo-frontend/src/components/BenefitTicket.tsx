@@ -36,6 +36,7 @@ function expiryLine(b: Benefit) {
 
 const SOURCES: Record<Benefit['source'], string> = {
   card: 'Card perk',
+  email: 'An email you added',
   gmail: 'Gmail',
   outlook: 'Outlook',
   imap: 'Email',

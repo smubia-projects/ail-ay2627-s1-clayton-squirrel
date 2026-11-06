@@ -1,5 +1,7 @@
-// Typed client for server.py. Benefit mirrors ExtractedBenefit in app.py.
-// Demo build: requests are answered in the browser by demo/server.ts, not sent to a server.
+// Typed client for the app's API. Benefit mirrors ExtractedBenefit in backend/app/extraction.py.
+// AI Lodge demo: requests are answered in the browser by demo/server.ts, which keeps the
+// benefit list in localStorage and forwards the AI features (extract, digest, ask) to the
+// real backend/ API through lib/aiApi.ts.
 
 import { SIGNED_OUT, demoRequest } from '../demo/server'
 
@@ -8,11 +10,13 @@ export type ExpiryConfidence = 'explicit' | 'computed' | 'ambiguous' | 'unknown'
 export interface Benefit {
   id: string
   /**
+   * email: pasted or uploaded on the Add benefits page (AI Lodge demo).
+   * gmail: the sample inbox the demo starts with. Outlook / imap: the full app's inbox connections.
    * outlook: Outlook, Hotmail or Microsoft 365 (Connect Outlook).
    * imap: an email account read with an app password (Gmail, Yahoo, iCloud, ...). loyalty: a membership spotted from who emails
    * the user. manual: typed in on the All Benefits page.
    */
-  source: 'gmail' | 'outlook' | 'imap' | 'loyalty' | 'card' | 'manual'
+  source: 'email' | 'gmail' | 'outlook' | 'imap' | 'loyalty' | 'card' | 'manual'
   is_benefit: boolean
   benefit_name: string
   provider: string
@@ -115,6 +119,17 @@ export interface RankedBenefit {
 export interface Digest {
   ranked_benefits: RankedBenefit[]
   digest_text: string
+}
+
+/** One email for the AI to read: pasted text, or the raw source of an uploaded .eml file. */
+export type EmailInput =
+  | { text: string; received_date?: string | null; label?: string }
+  | { eml: string; label?: string }
+
+/** What reading one email found: the benefit added to the list, or null when it wasn't one. */
+export interface ExtractResult {
+  benefit: Benefit | null
+  subject: string | null
 }
 
 export interface User {
@@ -234,6 +249,10 @@ const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.strin
 
 export const api = {
   session: () => request<Session>('/api/session'),
+  /** Opens the demo profile (no account): its sample data on first visit. */
+  startDemo: () => request<{ user: User }>('/api/demo/start', post({})),
+  /** Reads one email with the AI model and adds what it finds (real API call). */
+  extract: (email: EmailInput) => request<ExtractResult>('/api/extract', post(email)),
   register: (email: string, password: string, name: string) =>
     request<{ user: User }>('/api/auth/register', post({ email, password, name })),
   login: (email: string, password: string) => request<{ user: User }>('/api/auth/login', post({ email, password })),

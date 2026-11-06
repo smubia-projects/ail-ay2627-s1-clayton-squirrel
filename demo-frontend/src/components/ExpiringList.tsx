@@ -61,9 +61,9 @@ export function ExpiringList({ benefits, error, onRetry, onUpdated, onRemoved, l
         <div className="grid justify-items-center gap-2 px-5 py-10 text-center text-ink-muted">
           <Inbox className="size-7" aria-hidden />
           <p className="font-semibold text-ink">Nothing tracked yet</p>
-          <p>Connect your email or add a credit card to start tracking benefits.</p>
-          <Link href="/connections" className="mt-1 font-semibold text-primary-text underline-offset-4 hover:underline">
-            Set up connections
+          <p>Paste a benefit email or add a credit card to start tracking benefits.</p>
+          <Link href="/add" className="mt-1 font-semibold text-primary-text underline-offset-4 hover:underline">
+            Add benefits
           </Link>
         </div>
       ) : (

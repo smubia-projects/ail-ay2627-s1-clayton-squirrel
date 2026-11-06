@@ -1,13 +1,13 @@
 import { useSyncExternalStore } from 'react'
 
 // A tiny History API router: four pages don't need a routing library.
-// server.py serves index.html for each of these paths.
+// vercel.json rewrites each of these paths to index.html.
 
 export const PAGES = [
   { path: '/', label: 'Dashboard', short: 'Home' },
   { path: '/benefits', label: 'All Benefits', short: 'Benefits' },
   { path: '/assistant', label: 'Assistant', short: 'Assistant' },
-  { path: '/connections', label: 'Connections', short: 'Connect' },
+  { path: '/add', label: 'Add benefits', short: 'Add' },
 ] as const
 
 const listeners = new Set<() => void>()

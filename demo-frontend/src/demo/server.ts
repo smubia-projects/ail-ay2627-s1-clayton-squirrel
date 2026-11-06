@@ -1,15 +1,17 @@
-// A stand-in for server.py, so the demo runs as a static site (Vercel) with
-// no backend. It answers every /api request that lib/api.ts makes, from the
-// sample data in data.json (captured from the real app by
-// capture_demo_data.py) and keeps changes in this browser only.
+// The demo's in-browser "server". It answers every /api request lib/api.ts
+// makes and keeps the visitor's benefits in localStorage, starting from the
+// sample data in data.json (captured from the full app by capture_demo_data.py).
 //
-// - Any email and password signs in. Each email has its own account: the
-//   ones in data.json (alex@, priya@, marcus@ and sam@demo.com) have their
-//   own sample data, and any other email starts from Alex's. Google and
-//   Microsoft sign-in "connect" at once.
-// - Scans pretend to read emails for a few seconds, then add sample benefits.
-// - Assistant answers and the weekly digest are written from the benefits by
-//   simple rules, not by an AI model.
+// AI Lodge version (no accounts, no inbox connections):
+// - "Try the demo" opens one demo profile, Alex's sample benefits on first visit.
+//   "Reset demo data" puts it back.
+// - The three AI features call the real backend/ API (lib/aiApi.ts):
+//   /api/extract reads one pasted or uploaded email, /api/digest ranks the list,
+//   /api/ask answers questions. The benefit list is sent along with each request;
+//   the server stores nothing.
+// - Everything else (edits, review queue, card perks, ask history) stays local.
+// - The full app's Gmail/Outlook/IMAP/daily-scan routes below are still answered
+//   with pretend scans but nothing in the demo UI calls them any more.
 
 import type {
   AskEntry,
@@ -18,6 +20,8 @@ import type {
   BenefitEdit,
   CardsResponse,
   Digest,
+  EmailInput,
+  ExtractResult,
   GmailConnection,
   ImapAccount,
   QuickChange,
@@ -26,6 +30,7 @@ import type {
   User,
   UserCard,
 } from '../lib/api'
+import { aiPost } from '../lib/aiApi'
 import { CATEGORIES, TYPES } from '../lib/api'
 import captured from './data.json'
 
@@ -66,7 +71,7 @@ interface Store {
   accounts: Record<string, Account>
 }
 
-const VERSION = 4 // bump when data.json changes, so browsers drop the old saved copy
+const VERSION = 5 // bump when data.json changes, so browsers drop the old saved copy
 const STORAGE_KEY = 'squirrel-demo'
 const EMAIL_EVERY_MS = 220 // how fast a pretend scan "reads" emails
 const REMOVED_KEEP_DAYS = 30
@@ -122,11 +127,15 @@ function fromCaptured(source: Captured, email: string): Account {
   const data = shift(source)
   const cards = data.cards as UserCard[]
   return {
-    user: { ...(data.user as User), email, email_verified: true },
+    // A new id each time, so a reset gives a fresh dashboard.
+    user: { ...(data.user as User), id: newId(), email, email_verified: true },
     benefits: (data.benefits as Benefit[]).map((b) => {
       // A card's perks are listed under the card's name.
       const cardId = b.source === 'card' ? cards.find((c) => c.name === b.provider)?.id : undefined
-      return { ...strip(b), ...(cardId ? { card_id: cardId } : {}) }
+      // The sample inbox's benefits show as emails the visitor added (no Gmail links in the demo).
+      const fromEmail = b.source === 'gmail' || b.source === 'outlook' || b.source === 'imap'
+      const { source_link: _l, ...rest } = strip(b)
+      return { ...rest, ...(fromEmail ? { source: 'email' as const } : {}), ...(cardId ? { card_id: cardId } : {}) }
     }),
     cards,
     ask: data.ask_history as AskEntry[],
@@ -413,95 +422,78 @@ function autoScanStatus(): AutoScanStatus {
 }
 
 // ---------------------------------------------------------------------------
-// Assistant and digest, written by rules from the benefits.
+// AI features: the real backend/ API (extract, digest, ask)
 // ---------------------------------------------------------------------------
 
-const live = () =>
+/** The ExtractedBenefit fields the backend reads (backend/app/main.py BenefitIn). */
+const AI_FIELDS = [
+  'is_benefit',
+  'benefit_name',
+  'provider',
+  'type',
+  'category',
+  'expiry_confidence',
+  'expiry_reasoning',
+  'source_snippet',
+  'value',
+  'expiry_date',
+  'terms_summary',
+  'code',
+  'points',
+  'reminder',
+  'needs_review',
+  'review_reason',
+  'used_on',
+  'used_amount',
+] as const
+
+/** The visitor's current benefits, as the AI sees them (the server keeps nothing). */
+const aiBenefits = () =>
   active()
-    .map(shown)
-    .filter((b) => !b.needs_review && !b.used_on && (b.days_until_expiry ?? 0) >= 0)
-const soonest = (list: Benefit[]) =>
-  list.toSorted((a, b) => (a.days_until_expiry ?? Infinity) - (b.days_until_expiry ?? Infinity))
-const when = (b: Benefit) =>
-  b.days_until_expiry == null
-    ? 'with no expiry date'
-    : b.days_until_expiry === 0
-      ? 'today'
-      : b.days_until_expiry === 1
-        ? 'tomorrow'
-        : `in ${b.days_until_expiry} days`
-const possessive = (name: string) => (name.endsWith('s') ? `${name}’` : `${name}’s`)
-const describe = (b: Benefit) =>
-  `${b.provider ? `${possessive(b.provider)} ` : ''}${b.benefit_name}${b.value ? ` (${b.value})` : ''}, ${
-    b.days_until_expiry == null ? 'which doesn’t expire' : `which expires ${when(b)}`
-  }`
-const listOf = (items: string[]) =>
-  items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join('; ')}; and ${items.at(-1)}`
+    .filter((b) => !b.used_on)
+    .slice(0, 300)
+    .map((b) => Object.fromEntries(AI_FIELDS.map((k) => [k, b[k] ?? null])))
 
-const CATEGORY_WORDS: Record<string, string[]> = {
-  travel: ['travel', 'trip', 'flight', 'hotel', 'holiday', 'vacation'],
-  dining: ['dining', 'food', 'eat', 'coffee', 'restaurant', 'lunch', 'dinner'],
-  transport: ['transport', 'ride', 'uber', 'taxi', 'commute'],
-  shopping: ['shopping', 'shop', 'store', 'buy', 'grocery'],
-  wellness: ['wellness', 'gym', 'spa', 'health', 'fitness'],
-  entertainment: ['entertainment', 'movie', 'stream', 'music', 'fun'],
+type ExtractedRecord = Omit<Stored, 'id' | 'source'>
+
+async function extract(input: EmailInput): Promise<ExtractResult> {
+  signedInUser()
+  const { label, ...email } = input
+  const result = await aiPost<{ benefit: ExtractedRecord; subject: string | null }>('/api/extract', {
+    ...email,
+    today: todayIso(),
+  })
+  if (!result.benefit.is_benefit) return { benefit: null, subject: result.subject }
+  const b: Stored = {
+    ...result.benefit,
+    id: newId(),
+    source: 'email',
+    source_label: result.subject || label || 'An email you added',
+  }
+  state.benefits.push(b)
+  save()
+  return { benefit: shown(b), subject: result.subject }
 }
 
-function answer(question: string): string {
-  const q = question.toLowerCase()
-  const benefits = live()
-  const category = Object.entries(CATEGORY_WORDS).find(([, words]) => words.some((w) => q.includes(w)))?.[0]
-  if (category) {
-    const matches = soonest(benefits.filter((b) => b.category === category))
-    if (!matches.length) return `You don’t have any ${CATEGORIES[category].toLowerCase()} benefits right now.`
-    return `You have ${matches.length} ${CATEGORIES[category].toLowerCase()} benefit${
-      matches.length === 1 ? '' : 's'
-    }: ${listOf(matches.slice(0, 4).map(describe))}. ${
-      matches[0].days_until_expiry != null ? `Use ${matches[0].benefit_name} first.` : ''
-    }`.trim()
-  }
-  if (/card|credit/.test(q)) {
-    const credits = benefits.filter((b) => b.credit_total != null)
-    if (!credits.length) return 'You haven’t added a credit card yet. Add one on the Connections page.'
-    const left = credits.reduce((n, b) => n + (b.credit_total ?? 0) - (b.used_amount ?? 0), 0)
-    return `Your cards have $${left.toFixed(0)} in credits left this period. The soonest to reset: ${listOf(
-      soonest(credits)
-        .slice(0, 3)
-        .map(
-          (b) =>
-            `${b.benefit_name} ($${((b.credit_total ?? 0) - (b.used_amount ?? 0)).toFixed(0)} left, resets ${when(b)})`,
-        ),
-    )}.`
-  }
-  const days = /today|tonight/.test(q) ? 0 : /week|soon|next|urgent|expir|this/.test(q) ? 7 : 30
-  const due = soonest(benefits.filter((b) => b.days_until_expiry != null && b.days_until_expiry <= days))
-  if (due.length)
-    return `${due.length} benefit${due.length === 1 ? '' : 's'} expire${due.length === 1 ? 's' : ''} ${
-      days === 0 ? 'today' : `in the next ${days} days`
-    }: ${listOf(due.slice(0, 4).map(describe))}. Start with ${due[0].benefit_name}.`
-  const next = soonest(benefits.filter((b) => b.days_until_expiry != null))[0]
-  return next
-    ? `Nothing expires in the next ${days} days. The next one is ${describe(next)}.`
-    : 'None of your benefits has an expiry date coming up.'
+async function digest(): Promise<Digest> {
+  signedInUser()
+  return aiPost<Digest>('/api/digest', { benefits: aiBenefits(), today: todayIso() })
 }
 
-function digest(): Digest {
-  const ranked = soonest(live().filter((b) => b.days_until_expiry != null)).slice(0, 5)
-  return {
-    ranked_benefits: ranked.map((b) => ({
-      benefit_name: b.benefit_name,
-      provider: b.provider,
-      urgency_score: Math.max(1, 10 - Math.floor((b.days_until_expiry ?? 0) / 7)),
-      reason: `Expires ${when(b)}${b.value ? `; worth ${b.value}` : ''}.`,
-    })),
-    digest_text: ranked.length
-      ? `This week, use ${ranked[0].provider ? `${possessive(ranked[0].provider)} ` : ''}${ranked[0].benefit_name} first: it expires ${when(ranked[0])}.${
-          ranked[1]
-            ? ` After that, ${ranked[1].benefit_name} from ${ranked[1].provider || 'your list'} expires ${when(ranked[1])}.`
-            : ''
-        }`
-      : 'Nothing expires soon. Enjoy the quiet week.',
-  }
+async function ask(question: string): Promise<AskEntry> {
+  signedInUser()
+  const q = question.trim()
+  if (!q) throw new Error('Type a question first.')
+  if (q.length > 500) throw new Error('Keep your question under 500 characters.')
+  const { answer } = await aiPost<{ answer: string }>('/api/ask', {
+    question: q,
+    benefits: aiBenefits(),
+    today: todayIso(),
+  })
+  const entry: AskEntry = { id: newId(), question: q, answer, created_at: nowIso() }
+  state.ask = [entry, ...state.ask].slice(0, 50)
+  save()
+  return entry
 }
 
 // ---------------------------------------------------------------------------
@@ -547,11 +539,13 @@ function route(method: string, path: string, body: Record<string, unknown>): unk
   if (path === '/api/session')
     return {
       user: signedIn() ? state.user : null,
-      google_enabled: true,
-      microsoft_enabled: true,
-      gmail: signedIn() ? state.gmail : null,
-      auto_scan: signedIn() ? autoScanStatus() : null,
+      google_enabled: false,
+      microsoft_enabled: false,
+      gmail: null,
+      auto_scan: null,
     }
+  // "Try the demo": the demo profile (Alex's sample data the first time).
+  if (path === '/api/demo/start') return signedIn() ? { user: state.user } : signIn(captured.accounts[0].email)
   if (path === '/api/auth/register') {
     if (String(body.password ?? '').length < 8) throw new Error('Use a password of at least 8 characters.')
     return signIn(String(body.email ?? ''), String(body.name ?? ''))
@@ -678,16 +672,7 @@ function route(method: string, path: string, body: Record<string, unknown>): unk
     return action === 'dismiss' ? ok : shown(b)
   }
 
-  // Assistant
-  if (path === '/api/digest') return digest()
-  if (path === '/api/ask') {
-    const question = String(body.question ?? '').trim()
-    if (!question) throw new Error('Type a question first.')
-    const entry: AskEntry = { id: newId(), question, answer: answer(question), created_at: nowIso() }
-    state.ask = [entry, ...state.ask].slice(0, 50)
-    save()
-    return entry
-  }
+  // Assistant (the questions themselves go to the real API: see aiRoute)
   if (path === '/api/ask/history') return state.ask
   if (path === '/api/ask/history/clear') {
     state.ask = []
@@ -794,12 +779,22 @@ function route(method: string, path: string, body: Record<string, unknown>): unk
   throw new Error('not found')
 }
 
-/** Answers one request from lib/api.ts as server.py would, after a short pretend network delay. */
+/** The requests answered by the real backend/ API, or null for the local ones. */
+function aiRoute(path: string, body: Record<string, unknown>): Promise<unknown> | null {
+  if (path === '/api/extract') return extract(body as unknown as EmailInput)
+  if (path === '/api/digest') return digest()
+  if (path === '/api/ask') return ask(String(body.question ?? ''))
+  return null
+}
+
+/** Answers one request from lib/api.ts: AI features via the real API, the rest locally after a short pretend delay. */
 export async function demoRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? 'GET').toUpperCase()
   const body = typeof init.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {}
   const url = new URL(path, window.location.origin)
-  await sleep(url.pathname === '/api/ask' ? 900 + Math.random() * 700 : 80 + Math.random() * 120)
+  const ai = aiRoute(url.pathname, body)
+  if (ai) return structuredClone(await ai) as T
+  await sleep(80 + Math.random() * 120)
   if (init.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   // A copy, so the page can't change the stored state by editing what it gets back.
   return structuredClone(route(method, url.pathname, body)) as T

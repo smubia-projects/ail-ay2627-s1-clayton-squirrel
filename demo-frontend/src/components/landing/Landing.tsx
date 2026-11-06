@@ -1,19 +1,16 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { SignInView } from '../AuthScreen'
 import { LandingArt } from './LandingArt'
 import { Snowball } from './Snowball'
 import { useLandingMotion } from './useLandingMotion'
 
-// The signed-out page, from the Claude Design file "Squirrel Login": a scrolling
-// introduction (big "Squirrel", how it works, the kinds of benefit it tracks),
-// then the sign-in card. Colours are the --land-* tokens in index.css.
-
-type View = 'landing' | 'signin'
+// The intro page, from the Claude Design file "Squirrel Login": a scrolling
+// introduction (big "Squirrel", how it works, the kinds of benefit it tracks).
+// AI Lodge demo: there are no accounts, so every call to action opens the demo.
+// Colours are the --land-* tokens in index.css.
 
 interface LandingProps {
-  googleEnabled: boolean
-  initialError: string | null
-  onSignedIn: () => void
+  /** Opens the demo (with the sample benefits on first visit). */
+  onStart: () => Promise<void>
 }
 
 const delay = (ms: number) => ({ '--d': `${ms}ms` }) as CSSProperties
@@ -47,8 +44,8 @@ const LEAVES = [
 const STEPS = [
   {
     n: '01',
-    title: 'Connect Gmail and cards',
-    body: 'Read-only access. Squirrel scans for receipts, welcome emails and statements that mention a benefit.',
+    title: 'Paste an email, add your cards',
+    body: 'Paste a benefit email, upload an .eml file or try the sample inbox, and pick your credit cards from a list.',
   },
   {
     n: '02',
@@ -57,8 +54,8 @@ const STEPS = [
   },
   {
     n: '03',
-    title: 'Get nudged before it’s gone',
-    body: 'A reminder email arrives a week before anything expires, or whenever you choose for each benefit.',
+    title: 'Use it before it’s gone',
+    body: 'See what expires soonest, get an AI digest of what needs attention, and ask questions about what you hold.',
   },
 ]
 
@@ -116,29 +113,28 @@ const TILES = [
 const tileBg = (h: number) => `oklch(var(--land-tile-l) var(--land-tile-c) ${h})`
 const tileInk = (h: number) => `oklch(var(--land-tile-ink-l) 0.13 ${h})`
 
-// Plain answers about email access, on the homepage as Google's and
-// Microsoft's app reviews expect. Keep in step with the privacy policy.
+// Plain answers about how the demo handles email.
 const DATA_FACTS = [
   {
-    title: 'Read-only',
-    body: 'Squirrel can’t send, delete, move or change your email, or mark it as read.',
-  },
-  {
-    title: 'Only likely benefit emails',
-    body: 'It searches the last 6 months for emails that mention vouchers, memberships or expiry dates, and reads only those.',
+    title: 'No inbox access',
+    body: 'This demo never connects to your email account. It reads only the emails you paste or upload, one at a time.',
   },
   {
     title: 'Processed by AI, not kept',
-    body: 'Those emails are sent to OpenAI’s API to pull out the benefit and its date. Squirrel keeps what it found, not the email, and your data isn’t used to train AI models.',
+    body: 'Each email is sent through OpenRouter to an AI model to pull out the benefit and its date. The server stores nothing.',
   },
   {
-    title: 'Yours to remove',
-    body: 'Disconnect an email account at any time. Delete your account and everything Squirrel holds for you goes with it.',
+    title: 'Stays in your browser',
+    body: 'Your benefit list lives in this browser only. Reset the demo from the account menu to clear it.',
+  },
+  {
+    title: 'Checked by plain code',
+    body: 'Dates the AI isn’t sure of go to a review queue, and a voucher code is kept only if it appears word for word in the email.',
   },
 ]
 
 const PROMISE =
-  'Squirrel never asks for card numbers or bank logins. Gmail access is read-only, and you can revoke it any time.'
+  'Squirrel never asks for card numbers, bank logins or email passwords. It reads only the emails you give it.'
 
 /** A hill along the bottom of the hero, stretched to fill its box. */
 function Hill({ d, fill }: { d: string; fill: string }) {
@@ -149,25 +145,24 @@ function Hill({ d, fill }: { d: string; fill: string }) {
   )
 }
 
-export function Landing({ googleEnabled, initialError, onSignedIn }: LandingProps) {
-  // Straight to the form after a failed Google sign-in, or when signed out on an inner page.
-  const [view, setView] = useState<View>(() =>
-    initialError || window.location.pathname !== '/' ? 'signin' : 'landing',
-  )
+export function Landing({ onStart }: LandingProps) {
   const rootRef = useRef<HTMLDivElement>(null)
-  useLandingMotion(rootRef, view)
+  useLandingMotion(rootRef, 'landing')
+  const [starting, setStarting] = useState(false)
 
-  // On each switch: back to the top, a new tab title, and focus on the heading.
-  const firstView = useRef(true)
   useEffect(() => {
-    document.title = view === 'signin' ? 'Sign in · Squirrel' : 'Squirrel'
-    if (firstView.current) {
-      firstView.current = false
-      return
+    document.title = 'Squirrel'
+  }, [])
+
+  async function start() {
+    if (starting) return
+    setStarting(true)
+    try {
+      await onStart()
+    } finally {
+      setStarting(false)
     }
-    window.scrollTo({ top: 0, behavior: 'instant' })
-    rootRef.current?.querySelector<HTMLElement>('h1')?.focus({ preventScroll: true })
-  }, [view])
+  }
 
   return (
     <div ref={rootRef} className="relative isolate min-h-dvh overflow-x-clip bg-(--land-bg) text-ink">
@@ -194,9 +189,9 @@ export function Landing({ googleEnabled, initialError, onSignedIn }: LandingProp
         <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-4 sm:px-8">
           <button
             type="button"
-            onClick={() => setView('landing')}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg"
-            aria-label="Squirrel, about Squirrel"
+            aria-label="Squirrel, back to the top"
           >
             <img
               src="/icon-192.png"
@@ -207,33 +202,21 @@ export function Landing({ googleEnabled, initialError, onSignedIn }: LandingProp
             />
             <span className="text-lg font-bold tracking-tight">Squirrel</span>
           </button>
-          {view === 'landing' ? (
-            <button
-              type="button"
-              onClick={() => setView('signin')}
-              className="min-h-11 cursor-pointer rounded-full border border-line bg-surface px-4 text-sm font-semibold transition-colors hover:border-ink"
-            >
-              Sign in
-            </button>
-          ) : null}
+          <button
+            type="button"
+            aria-disabled={starting || undefined}
+            onClick={start}
+            className="min-h-11 cursor-pointer rounded-full border border-line bg-surface px-4 text-sm font-semibold transition-colors hover:border-ink"
+          >
+            Try the demo
+          </button>
         </div>
-        {view === 'landing' ? (
-          <div aria-hidden className="absolute inset-x-0 bottom-0 h-0.5">
-            <div data-progress className="h-full w-0 bg-cta" />
-          </div>
-        ) : null}
+        <div aria-hidden className="absolute inset-x-0 bottom-0 h-0.5">
+          <div data-progress className="h-full w-0 bg-cta" />
+        </div>
       </header>
 
-      {view === 'signin' ? (
-        <main className="mx-auto flex max-w-[1200px] justify-center px-4 pt-[110px] sm:px-8">
-          <SignInView
-            googleEnabled={googleEnabled}
-            initialError={initialError}
-            onSignedIn={onSignedIn}
-            onBack={() => setView('landing')}
-          />
-        </main>
-      ) : (
+      {
         <main>
           <Hero />
           <div className="mx-auto max-w-[1200px] px-4 sm:px-8">
@@ -265,13 +248,6 @@ export function Landing({ googleEnabled, initialError, onSignedIn }: LandingProp
                     </div>
                   ))}
                 </dl>
-                <p data-reveal="up" className="m-0 text-ink-muted">
-                  The details are in the{' '}
-                  <a href="/privacy" className="font-semibold text-ink underline underline-offset-4">
-                    privacy policy
-                  </a>
-                  .
-                </p>
               </section>
               <section className="flex flex-col-reverse gap-8 pt-10 pb-36 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col items-start gap-6">
@@ -285,10 +261,11 @@ export function Landing({ googleEnabled, initialError, onSignedIn }: LandingProp
                     type="button"
                     data-reveal="up"
                     style={delay(120)}
-                    onClick={() => setView('signin')}
+                    aria-disabled={starting || undefined}
+                    onClick={start}
                     className="min-h-11 cursor-pointer rounded-full bg-ink px-6.5 py-3.5 text-base font-semibold text-(--land-bg) transition-colors hover:bg-cta hover:text-white"
                   >
-                    Sign in to Squirrel
+                    Try the demo
                   </button>
                 </div>
                 <div data-reveal="up" style={delay(240)} className="w-[200px] shrink-0">
@@ -301,16 +278,12 @@ export function Landing({ googleEnabled, initialError, onSignedIn }: LandingProp
             <div className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-6 gap-y-1 px-4 py-6 text-sm text-ink-muted sm:px-8">
               <span>© 2026 Squirrel</span>
               <a
-                href="/privacy"
+                href="https://www.smubia.com/ai-lodge"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex min-h-11 items-center underline-offset-4 hover:text-ink hover:underline"
               >
-                Privacy policy
-              </a>
-              <a
-                href="/terms"
-                className="inline-flex min-h-11 items-center underline-offset-4 hover:text-ink hover:underline"
-              >
-                Terms of service
+                An SMU BIA AI Lodge project
               </a>
               <a
                 href="mailto:squirrelappsg@gmail.com"
@@ -321,7 +294,7 @@ export function Landing({ googleEnabled, initialError, onSignedIn }: LandingProp
             </div>
           </footer>
         </main>
-      )}
+      }
     </div>
   )
 }
@@ -409,7 +382,7 @@ function Hero() {
           style={delay(1100)}
           className="mt-[18px] mb-0 max-w-[30em] text-lg leading-[1.55] text-ink-muted"
         >
-          Connect your Gmail and cards, and never let a voucher, membership or card credit expire unnoticed.
+          Paste a benefit email or pick your cards, and never let a voucher, membership or card credit expire unnoticed.
         </p>
       </div>
     </section>

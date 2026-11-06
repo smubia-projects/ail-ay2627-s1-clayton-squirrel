@@ -26,6 +26,7 @@ export function BenefitRow({ benefit, index = 0, showTerms = true, children }: B
   const meta = [
     {
       card: 'Card perk',
+      email: benefit.source_label ? `From “${benefit.source_label}”` : 'From an email you added',
       gmail: 'From Gmail',
       outlook: 'From Outlook',
       imap: `From ${benefit.source_account ?? 'email'}`,

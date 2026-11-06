@@ -406,9 +406,7 @@ export function BenefitsPage({ benefits, error, onRetry, onUpdated, onRemoved }:
             </label>
             <select id="filter-source" value={filters.source} onChange={set('source')} className={selectClass}>
               <option value="all">All sources</option>
-              <option value="gmail">From Gmail</option>
-              <option value="outlook">From Outlook</option>
-              <option value="imap">Email accounts</option>
+              <option value="email">From emails</option>
               <option value="loyalty">Memberships found</option>
               <option value="card">Card perks</option>
               <option value="manual">Added by you</option>

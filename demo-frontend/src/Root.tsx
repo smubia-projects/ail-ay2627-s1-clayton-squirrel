@@ -2,42 +2,24 @@ import { LoaderCircle, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import App from './App'
 import { Landing } from './components/landing/Landing'
-import { LegalPage } from './components/LegalPage'
-import { ResetPasswordScreen } from './components/ResetPasswordScreen'
-import { VerifyEmailScreen } from './components/VerifyEmailScreen'
 import { Button } from './components/ui/Button'
 import { Message } from './components/ui/Message'
 import { api, errorMessage, setUnauthorizedHandler, type Session } from './lib/api'
-import { usePath } from './lib/router'
 
-/** Reads ?notice= / ?auth_error= left by a Google or Microsoft redirect, then removes them from the URL. */
-function takeRedirectParams() {
-  const params = new URLSearchParams(window.location.search)
-  const result = {
-    notice: params.get('notice'),
-    authError: params.get('auth_error'),
-  }
-  if (result.notice || result.authError) {
-    window.history.replaceState(null, '', window.location.pathname + window.location.hash)
-  }
-  return result
-}
-
-/** Loads the session and shows either the sign-in screen or the dashboard. */
+/**
+ * Loads the session and shows either the intro page or the dashboard.
+ * AI Lodge demo: there are no accounts. "Try the demo" opens a demo profile
+ * whose benefits live in this browser (see demo/server.ts).
+ */
 export function Root() {
-  const [redirect] = useState(takeRedirectParams)
   const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const path = usePath()
 
   const fetchSession = useCallback(() => {
     api.session().then(
       (s) => {
         setSession(s)
         setError(null)
-        // Reminders are sent by the user's own clock, so tell the server where they are.
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-        if (s.user && timezone) api.setTimezone(timezone).catch(() => {})
       },
       (e) => setError(errorMessage(e)),
     )
@@ -53,27 +35,9 @@ export function Root() {
     return () => setUnauthorizedHandler(null)
   }, [fetchSession])
 
-  async function signOut() {
-    try {
-      await api.logout()
-    } finally {
-      setSession((s) => s && { ...s, user: null, gmail: null })
-    }
-  }
-
-  // Public whether or not someone is signed in: Google's and Microsoft's reviews link to them.
-  if (path === '/privacy' || path === '/terms') {
-    return <LegalPage page={path === '/privacy' ? 'privacy' : 'terms'} />
-  }
-
-  // Opened from the confirmation email: works whether or not someone is signed in here.
-  if (path === '/verify-email') {
-    return <VerifyEmailScreen onDone={load} />
-  }
-
-  // Opened from a reset email: shown whether or not someone is signed in here.
-  if (path === '/reset-password') {
-    return <ResetPasswordScreen onSignedIn={load} />
+  const leave = () => {
+    window.history.replaceState(null, '', '/')
+    setSession((s) => s && { ...s, user: null, gmail: null })
   }
 
   if (error) {
@@ -98,22 +62,32 @@ export function Root() {
   }
 
   if (!session.user) {
-    return <Landing googleEnabled={session.google_enabled} initialError={redirect.authError} onSignedIn={load} />
+    return (
+      <Landing
+        onStart={async () => {
+          await api.startDemo()
+          load()
+        }}
+      />
+    )
   }
 
   return (
     <App
-      // A different account gets a fresh dashboard, not the last one's state.
+      // A reset gets a fresh dashboard, not the last one's state.
       key={session.user.id}
       user={session.user}
-      session={session}
-      notice={redirect.notice}
-      authError={redirect.authError}
-      onSessionChange={load}
-      onSignOut={signOut}
-      onAccountDeleted={() => {
-        window.history.replaceState(null, '', '/')
-        setSession((s) => s && { ...s, user: null, gmail: null })
+      onSignOut={async () => {
+        try {
+          await api.logout()
+        } finally {
+          leave()
+        }
+      }}
+      onReset={async () => {
+        await api.deleteAccount({ email: session.user?.email ?? '' })
+        await api.startDemo()
+        load()
       }}
     />
   )

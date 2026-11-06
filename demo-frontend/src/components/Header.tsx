@@ -3,28 +3,27 @@ import {
   CircleUser,
   House,
   ListChecks,
-  LoaderCircle,
   LogOut,
+  MailPlus,
   MessageCircle,
   Moon,
-  Plug,
+  RotateCcw,
   Sun,
-  Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useArmedAction } from '../hooks/useArmedAction'
 import type { User } from '../lib/api'
 import { cn } from '../lib/cn'
 import { PAGES } from '../lib/router'
 import { setTheme, useTheme } from '../lib/theme'
-import { DeleteAccountDialog } from './DeleteAccountDialog'
 import { Link } from './Link'
 
 const PAGE_ICONS: Record<string, LucideIcon> = {
   '/': House,
   '/benefits': ListChecks,
   '/assistant': MessageCircle,
-  '/connections': Plug,
+  '/add': MailPlus,
 }
 
 function ThemeToggle() {
@@ -47,21 +46,23 @@ function ThemeToggle() {
 
 interface AccountMenuProps {
   user: User
+  /** Leaves the demo for the intro page (the benefit list stays in this browser). */
   onSignOut: () => Promise<void>
-  onAccountDeleted: () => void
+  /** Puts the demo back to its sample data. */
+  onReset: () => Promise<void>
 }
 
-/** The signed-in email; opens a small panel with "Sign out", the policies and "Delete account". */
-function AccountMenu({ user, onSignOut, onAccountDeleted }: AccountMenuProps) {
-  const email = user.email
+/** AI Lodge demo: no accounts, just the demo profile with "Reset demo data" and "Exit demo". */
+function AccountMenu({ user, onSignOut, onReset }: AccountMenuProps) {
+  const name = user.name || 'Demo profile'
   const [open, setOpen] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [signingOut, setSigningOut] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [armed, armOrConfirm, disarm] = useArmedAction()
   const panelId = useId()
   const wrapperRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
-  // Close on a click outside, or Escape (focus goes back to the email button).
+  // Close on a click outside, or Escape (focus goes back to the menu button).
   useEffect(() => {
     if (!open) return
     function onPointerDown(e: PointerEvent) {
@@ -80,13 +81,26 @@ function AccountMenu({ user, onSignOut, onAccountDeleted }: AccountMenuProps) {
     }
   }, [open])
 
+  async function run(action: () => Promise<void>) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await action()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div
       ref={wrapperRef}
       className="relative"
       // Tabbing out of the panel closes it.
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false)
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setOpen(false)
+          disarm()
+        }
       }}
     >
       <button
@@ -94,8 +108,8 @@ function AccountMenu({ user, onSignOut, onAccountDeleted }: AccountMenuProps) {
         type="button"
         aria-expanded={open}
         aria-controls={panelId}
-        aria-label={`Account: ${email}`}
-        title={email}
+        aria-label={`Demo: ${name}`}
+        title={name}
         onClick={() => setOpen((o) => !o)}
         className={cn(
           'flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-medium text-ink-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink sm:px-3',
@@ -103,7 +117,7 @@ function AccountMenu({ user, onSignOut, onAccountDeleted }: AccountMenuProps) {
         )}
       >
         <CircleUser className="size-5 shrink-0" aria-hidden />
-        <span className="hidden max-w-48 truncate lg:inline">{email}</span>
+        <span className="hidden max-w-48 truncate lg:inline">{name}</span>
         <ChevronDown
           className={cn('hidden size-4 shrink-0 transition-transform duration-150 sm:block', open && 'rotate-180')}
           aria-hidden
@@ -116,66 +130,37 @@ function AccountMenu({ user, onSignOut, onAccountDeleted }: AccountMenuProps) {
           className="absolute top-full right-0 z-30 mt-2 grid w-64 max-w-[calc(100vw-2rem)] animate-rise gap-1 rounded-xl glass-float p-1.5"
         >
           <div className="px-2.5 py-2">
-            <p className="text-xs text-ink-muted">Signed in as</p>
-            <p className="truncate text-sm font-semibold" title={email}>
-              {email}
+            <p className="text-xs text-ink-muted">Demo profile</p>
+            <p className="truncate text-sm font-semibold" title={name}>
+              {name}
             </p>
+            <p className="mt-1 text-xs text-ink-muted">No account: your benefits are kept in this browser only.</p>
           </div>
           <div className="h-px bg-line" aria-hidden />
           <button
             type="button"
-            aria-disabled={signingOut || undefined}
-            onClick={async () => {
-              if (signingOut) return
-              setSigningOut(true)
-              await onSignOut()
-            }}
-            className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm font-semibold text-danger transition-colors duration-150 hover:bg-danger-soft aria-disabled:cursor-not-allowed aria-disabled:opacity-70"
-          >
-            {signingOut ? (
-              <LoaderCircle className="size-4 animate-spin" aria-hidden />
-            ) : (
-              <LogOut className="size-4" aria-hidden />
-            )}
-            {signingOut ? 'Signing out…' : 'Sign out'}
-          </button>
-          <div className="h-px bg-line" aria-hidden />
-          <div className="flex flex-wrap gap-x-3 px-2.5 text-xs text-ink-muted">
-            <a
-              href="/privacy"
-              className="inline-flex min-h-9 items-center underline-offset-4 hover:text-ink hover:underline"
-            >
-              Privacy policy
-            </a>
-            <a
-              href="/terms"
-              className="inline-flex min-h-9 items-center underline-offset-4 hover:text-ink hover:underline"
-            >
-              Terms
-            </a>
-          </div>
-          <button
-            type="button"
+            aria-disabled={busy || undefined}
             onClick={() => {
-              setOpen(false)
-              setDeleting(true)
+              if (armOrConfirm()) void run(onReset)
             }}
-            className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-ink-muted transition-colors duration-150 hover:bg-danger-soft hover:text-danger"
+            className={cn(
+              'flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-ink-muted transition-colors duration-150 hover:bg-danger-soft hover:text-danger',
+              armed && 'bg-danger-soft text-danger',
+            )}
           >
-            <Trash2 className="size-4" aria-hidden />
-            Delete account
+            <RotateCcw className="size-4" aria-hidden />
+            {armed ? 'Click again to reset' : 'Reset demo data'}
+          </button>
+          <button
+            type="button"
+            aria-disabled={busy || undefined}
+            onClick={() => void run(onSignOut)}
+            className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm font-semibold text-ink transition-colors duration-150 hover:bg-surface-2"
+          >
+            <LogOut className="size-4" aria-hidden />
+            Exit demo
           </button>
         </div>
-      ) : null}
-      {deleting ? (
-        <DeleteAccountDialog
-          user={user}
-          onClose={() => {
-            setDeleting(false)
-            triggerRef.current?.focus()
-          }}
-          onDeleted={onAccountDeleted}
-        />
       ) : null}
     </div>
   )
@@ -210,10 +195,10 @@ interface HeaderProps {
   path: string
   user: User
   onSignOut: () => Promise<void>
-  onAccountDeleted: () => void
+  onReset: () => Promise<void>
 }
 
-export function Header({ path, user, onSignOut, onAccountDeleted }: HeaderProps) {
+export function Header({ path, user, onSignOut, onReset }: HeaderProps) {
   const { listRef, pill } = useNavPill(path)
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-header backdrop-blur-2xl backdrop-saturate-150">
@@ -275,7 +260,7 @@ export function Header({ path, user, onSignOut, onAccountDeleted }: HeaderProps)
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <ThemeToggle />
-          <AccountMenu user={user} onSignOut={onSignOut} onAccountDeleted={onAccountDeleted} />
+          <AccountMenu user={user} onSignOut={onSignOut} onReset={onReset} />
         </div>
       </div>
     </header>
