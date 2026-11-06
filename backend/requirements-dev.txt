@@ -1,0 +1,5 @@
+# Local testing only (not installed in the image):
+#   python -m pip install -r requirements-dev.txt && python -m pytest
+-r requirements.txt
+pytest>=8
+httpx>=0.28,<1.0
