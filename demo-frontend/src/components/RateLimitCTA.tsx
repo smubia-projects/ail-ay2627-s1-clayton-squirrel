@@ -11,7 +11,7 @@ const PROJECT_CTA = {
   accentColor: '#D9481F',
   headline: "You've stashed a lot of acorns!",
   description:
-    'This demo answered {count} AI requests for you, its limit for now. Want to build AI apps like this one? Join us, or run your own copy from GitHub.',
+    'Want to build AI that makes sure no voucher, perk or membership ever expires unused? AI Lodge teams ship working products instead of slide decks, then show them to the whole community.',
   programme: 'AI Lodge',
   programmeLink: 'https://www.smubia.com/ailodge',
   githubLink: 'https://github.com/smubia-projects/ail-ay2627-s1-clayton-squirrel',
