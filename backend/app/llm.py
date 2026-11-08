@@ -59,7 +59,10 @@ def _create_completion(payload: dict) -> dict:
     if not key:
         raise AIError("No AI API key is configured on the server (OPENROUTER_API_KEY).")
 
-    body = json.dumps({"model": settings.openrouter_model, **payload}).encode()
+    model = settings.openrouter_model
+    # DeepSeek thinks first by default; these calls have a TIMEOUT_S budget.
+    extra = {"reasoning_effort": "none"} if "deepseek" in model.lower() else {}
+    body = json.dumps({"model": model, **extra, **payload}).encode()
     url = settings.openrouter_base_url.rstrip("/") + "/chat/completions"
     for attempt in range(1, MAX_ATTEMPTS + 1):
         request = urllib.request.Request(url, data=body, method="POST", headers={

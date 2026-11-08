@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     # OpenRouter (all AI calls go through its OpenAI-compatible chat/completions API).
     openrouter_api_key: str = Field("", validation_alias=AliasChoices("API_KEY", "OPENROUTER_API_KEY"))
-    openrouter_model: str = Field("gemini-3.5-flash-lite", validation_alias=AliasChoices("MODEL_NAME", "OPENROUTER_MODEL"))
+    openrouter_model: str = Field("deepseek-v4-1-flash-260910", validation_alias=AliasChoices("MODEL_NAME", "OPENROUTER_MODEL"))
     openrouter_base_url: str = Field("https://api.apiyi.com/v1", validation_alias=AliasChoices("API_BASE_URL", "OPENROUTER_BASE_URL"))
 
     # Comma-separated frontend origins allowed by CORS, e.g. https://squirrel.vercel.app
